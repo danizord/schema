@@ -19,44 +19,23 @@ export type ConvertCase = {
   encodeKeys(k: string): string
 }
 
-// Helper to check if a schema contains any user-defined pipes
-function containsPipes(schema: z.core.$ZodType): boolean {
-  if (tagged('pipe')(schema)) {
-    return true
-  }
-  if (tagged('object')(schema)) {
-    const shape = schema._zod.def.shape
-    return Object.values(shape).some((v: any) => containsPipes(v))
-  }
-  if (tagged('array')(schema)) {
-    return containsPipes(schema._zod.def.element)
-  }
-  return false
-}
-
-// Helper to recursively extract OUT schemas from pipes
+// Recursively extract OUT schemas from pipes to get final transformed types
 function extractOut(schema: z.core.$ZodType): z.core.$ZodType {
   if (tagged('pipe')(schema)) {
-    // Extract OUT and recursively process it
-    const out = schema._zod.def.out
-    return extractOut(out)
+    return extractOut(schema._zod.def.out)
   }
   if (tagged('array')(schema)) {
-    // For arrays, extract OUT from the element schema
     const element = extractOut(schema._zod.def.element)
     return z.array(element) as any
   }
   if (tagged('object')(schema)) {
-    // For objects, recursively extract OUT from all fields
     const shape = schema._zod.def.shape
     const newShape = fn.map(shape, (v: any) => extractOut(v))
     const { catchall } = schema._zod.def
-    if (catchall) {
-      return z.object(newShape as any).catchall(catchall) as any
-    }
-    return z.object(newShape as any) as any
+    return catchall 
+      ? z.object(newShape as any).catchall(catchall) as any
+      : z.object(newShape as any) as any
   }
-  // For non-pipes/arrays/objects, return as-is
   return schema
 }
 
@@ -70,16 +49,12 @@ export function convertCaseCodec({ decodeKeys, encodeKeys }: ConvertCase) {
       case tagged('object')(x) && tagged('object', original): {
         const { shape, catchall } = original._zod.def
         const processedShape = x._zod.def.shape
-        // For encoder: use processed schemas (full pipes) so transformations occur
-        const encoderShape = fn.map(processedShape, (v) => v)
-        // For decoder: recursively extract OUT from processed schemas
-        const decoderShape = fn.map(processedShape, (v) => extractOut(v))
         const encoder = !catchall
-          ? z.object(encode(encoderShape))
-          : z.object(encode(encoderShape)).catchall(catchall)
+          ? z.object(encode(processedShape))
+          : z.object(encode(processedShape)).catchall(catchall)
         const decoder = !catchall
-          ? z.object(decode(decoderShape))
-          : z.object(decode(decoderShape)).catchall(catchall)
+          ? z.object(decode(fn.map(processedShape, extractOut)))
+          : z.object(decode(fn.map(processedShape, extractOut))).catchall(catchall)
         return z.codec(encoder, decoder, { decode, encode })
       }
       case tagged('pipe')(x): return x as never
