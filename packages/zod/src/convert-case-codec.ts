@@ -29,20 +29,27 @@ export function convertCaseCodec({ decodeKeys, encodeKeys }: ConvertCase) {
       case tagged('object')(x) && tagged('object', original): {
         const { shape, catchall } = original._zod.def
         const processedShape = x._zod.def.shape
-        // For encoder: use OUT schema of user-defined pipes, original for others
+        // For encoder: use processed for user pipes AND objects-that-became-pipes
         const encoderShape = fn.map(shape, (v, k) => {
-          if (tagged('pipe')(v)) {
-            // User-defined codec: use OUT schema (the decoded type)
-            return v._zod.def.out
+          const processed = processedShape[k]
+          if (tagged('pipe')(v) || (tagged('object')(v) && tagged('pipe')(processed))) {
+            return processed
           }
           return z.clone(v, v._zod.def)
+        })
+        // For decoder: use OUT of pipes
+        const decoderShape = fn.map(processedShape, (v) => {
+          if (tagged('pipe')(v)) {
+            return v._zod.def.out
+          }
+          return v
         })
         const encoder = !catchall
           ? z.object(encode(encoderShape))
           : z.object(encode(encoderShape)).catchall(catchall)
         const decoder = !catchall
-          ? z.object(decode(processedShape))
-          : z.object(decode(processedShape)).catchall(catchall)
+          ? z.object(decode(decoderShape))
+          : z.object(decode(decoderShape)).catchall(catchall)
         return z.codec(encoder, decoder, { decode, encode })
       }
       case tagged('pipe')(x): return x as never
