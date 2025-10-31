@@ -19,6 +19,26 @@ export type ConvertCase = {
   encodeKeys(k: string): string
 }
 
+// Recursively extract OUT schemas from pipes to get final transformed types
+function extractOut(schema: z.core.$ZodType): z.core.$ZodType {
+  if (tagged('pipe')(schema)) {
+    return extractOut(schema._zod.def.out)
+  }
+  if (tagged('array')(schema)) {
+    const element = extractOut(schema._zod.def.element)
+    return z.array(element) as any
+  }
+  if (tagged('object')(schema)) {
+    const shape = schema._zod.def.shape
+    const newShape = fn.map(shape, (v: any) => extractOut(v))
+    const { catchall } = schema._zod.def
+    return catchall 
+      ? z.object(newShape as any).catchall(catchall) as any
+      : z.object(newShape as any) as any
+  }
+  return schema
+}
+
 export function convertCaseCodec({ decodeKeys, encodeKeys }: ConvertCase): <T extends z.ZodType>(type: T) => z.ZodType
 export function convertCaseCodec({ decodeKeys, encodeKeys }: ConvertCase): <T extends z.core.$ZodType>(type: T) => z.core.$ZodType
 export function convertCaseCodec({ decodeKeys, encodeKeys }: ConvertCase) {
@@ -28,14 +48,16 @@ export function convertCaseCodec({ decodeKeys, encodeKeys }: ConvertCase) {
     switch (true) {
       case tagged('object')(x) && tagged('object', original): {
         const { shape, catchall } = original._zod.def
+        const processedShape = x._zod.def.shape
         const encoder = !catchall
-          ? z.object(encode(fn.map(shape, (v) => z.clone(v, v._zod.def))))
-          : z.object(encode(fn.map(shape, (v) => z.clone(v, v._zod.def)))).catchall(catchall)
+          ? z.object(encode(processedShape))
+          : z.object(encode(processedShape)).catchall(catchall)
         const decoder = !catchall
-          ? z.object(decode(x._zod.def.shape))
-          : z.object(decode(x._zod.def.shape)).catchall(catchall)
+          ? z.object(decode(fn.map(processedShape, extractOut)))
+          : z.object(decode(fn.map(processedShape, extractOut))).catchall(catchall)
         return z.codec(encoder, decoder, { decode, encode })
       }
+      case tagged('pipe')(x): return x as never
       case tagged('transform')(x): return x as never
       default: return z.clone(original, x._zod.def as z.core.$ZodTypeDef)
     }
