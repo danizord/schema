@@ -29,24 +29,15 @@ export function convertCaseCodec({ decodeKeys, encodeKeys }: ConvertCase) {
       case tagged('object')(x) && tagged('object', original): {
         const { catchall } = original._zod.def
         const processedShape = x._zod.def.shape
-        // For nested pipes/codecs:
-        // - encoder needs to accept uppercase keys (out schema of nested codec)
-        // - decoder needs to accept lowercase keys (in schema of nested codec)
-        const encoderShape = fn.map(processedShape, (v) => 
-          tagged('pipe')(v) ? v._zod.def.out : v
-        )
-        const decoderShape = fn.map(processedShape, (v) => 
-          tagged('pipe')(v) ? v._zod.def.in : v
-        )
         const encoder = !catchall
-          ? z.object(encode(encoderShape))
-          : z.object(encode(encoderShape)).catchall(catchall)
+          ? z.object(encode(processedShape))
+          : z.object(encode(processedShape)).catchall(catchall)
         const decoder = !catchall
-          ? z.object(decode(decoderShape))
-          : z.object(decode(decoderShape)).catchall(catchall)
+          ? z.object(decode(processedShape))
+          : z.object(decode(processedShape)).catchall(catchall)
         return z.codec(encoder, decoder, { decode, encode })
       }
-      case tagged('pipe')(x): return z.clone(x, x._zod.def as z.core.$ZodTypeDef)
+      case tagged('pipe')(x): return x as never
       case tagged('transform')(x): return x as never
       default: return z.clone(original, x._zod.def as z.core.$ZodTypeDef)
     }
