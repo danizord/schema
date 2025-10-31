@@ -358,4 +358,89 @@ vi.describe('〖⛳️〗‹‹‹ ❲@traversable/zod❳', () => {
       }
     `)
   })
+
+  vi.test('〖⛳️〗› ❲zx.deepCamelCaseCodec with nested codec❳', () => {
+    const CAMEL = zx.deepCamelCaseCodec(
+      z.object({
+        user_name: z.string(),
+        created_at: z.codec(
+          z.string(),
+          z.date(),
+          {
+            decode: (isoString) => new Date(isoString),
+            encode: (date) => date.toISOString(),
+          }
+        ),
+        nested_object: z.object({
+          some_field: z.codec(
+            z.string(),
+            z.number(),
+            {
+              decode: (str) => parseInt(str, 10),
+              encode: (num) => num.toString(),
+            }
+          )
+        })
+      })
+    )
+
+    const testDate = new Date('2024-01-01T00:00:00.000Z')
+    
+    vi.expect.soft(
+      CAMEL.parse({
+        user_name: 'John',
+        created_at: '2024-01-01T00:00:00.000Z',
+        nested_object: {
+          some_field: '42'
+        }
+      })
+    ).toMatchInlineSnapshot
+      (`
+      {
+        "createdAt": 2024-01-01T00:00:00.000Z,
+        "nestedObject": {
+          "someField": 42,
+        },
+        "userName": "John",
+      }
+    `)
+
+    vi.expect.soft(
+      CAMEL.decode({
+        user_name: 'John',
+        created_at: '2024-01-01T00:00:00.000Z',
+        nested_object: {
+          some_field: '42'
+        }
+      })
+    ).toMatchInlineSnapshot
+      (`
+      {
+        "createdAt": 2024-01-01T00:00:00.000Z,
+        "nestedObject": {
+          "someField": 42,
+        },
+        "userName": "John",
+      }
+    `)
+
+    vi.expect.soft(
+      CAMEL.encode({
+        "userName": "John",
+        "createdAt": testDate,
+        "nestedObject": {
+          "someField": 42,
+        },
+      })
+    ).toMatchInlineSnapshot
+      (`
+      {
+        "created_at": "2024-01-01T00:00:00.000Z",
+        "nested_object": {
+          "some_field": "42",
+        },
+        "user_name": "John",
+      }
+    `)
+  })
 })
